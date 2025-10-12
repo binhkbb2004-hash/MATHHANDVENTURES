@@ -14,4 +14,4 @@ COPY . .
 
 # Ra lệnh cho container chạy ứng dụng khi khởi động
 # Dùng CMD thay cho Procfile
-CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "app:app", "--bind", "0.0.0.0:$PORT"]
+CMD gunicorn --worker-class eventlet -w 1 app:app --bind 0.0.0.0:$PORT

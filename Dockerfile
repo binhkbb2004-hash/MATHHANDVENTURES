@@ -4,9 +4,9 @@ FROM python:3.11-slim
 # Đặt thư mục làm việc bên trong container
 WORKDIR /app
 
-# --- THÊM CÁC DÒNG NÀY ĐỂ CÀI ĐẶT THƯ VIỆN HỆ THỐNG CHO OPENCV ---
+# Cài đặt thư viện hệ thống cho OpenCV (sử dụng tên gói khác)
 RUN apt-get update
-RUN apt-get install -y libgl1-mesa-glx
+RUN apt-get install -y libgl1
 
 # Sao chép các file yêu cầu và cài đặt thư viện Python
 COPY requirements.txt requirements.txt

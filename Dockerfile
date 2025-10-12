@@ -4,9 +4,13 @@ FROM python:3.11-slim
 # Đặt thư mục làm việc bên trong container
 WORKDIR /app
 
-# Cài đặt thư viện hệ thống cho OpenCV (sử dụng tên gói khác)
-RUN apt-get update
-RUN apt-get install -y libgl1
+# --- Cài đặt một bộ đầy đủ các thư viện hệ thống cần thiết cho OpenCV ---
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev
 
 # Sao chép các file yêu cầu và cài đặt thư viện Python
 COPY requirements.txt requirements.txt

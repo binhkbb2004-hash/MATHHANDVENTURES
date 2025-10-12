@@ -4,8 +4,11 @@ FROM python:3.11-slim
 # Đặt thư mục làm việc bên trong container
 WORKDIR /app
 
-# Sao chép các file yêu cầu và cài đặt thư viện
-# Điều này giúp tận dụng cache của Docker để build nhanh hơn
+# --- THÊM CÁC DÒNG NÀY ĐỂ CÀI ĐẶT THƯ VIỆN HỆ THỐNG CHO OPENCV ---
+RUN apt-get update
+RUN apt-get install -y libgl1-mesa-glx
+
+# Sao chép các file yêu cầu và cài đặt thư viện Python
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -13,5 +16,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Ra lệnh cho container chạy ứng dụng khi khởi động
-# Dùng CMD thay cho Procfile
 CMD gunicorn --worker-class eventlet -w 1 app:app --bind 0.0.0.0:$PORT

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Client for Game Server</title>
+    <style>
+        body { font-family: sans-serif; background-color: #282c34; color: white; padding: 20px; display: flex; gap: 20px;}
+        .main-controls, .history { flex: 1; }
+        #logs, #history-data { border: 1px solid #61dafb; padding: 10px; margin-top: 10px; height: 400px; overflow-y: scroll; background-color: #20232a; }
+        button { font-size: 16px; padding: 10px; margin-right: 10px; cursor: pointer; }
+        .log-message, .history-entry { border-bottom: 1px solid #444; padding: 5px 0; }
+        .history-entry { display: flex; justify-content: space-between; }
+        input { padding: 8px; font-size: 16px; width: 300px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="main-controls">
+        <h1>Trình kiểm thử Back-end</h1>
+        <p>Trạng thái kết nối: <b id="status" style="color: red;">Đang kết nối...</b></p>
+        
+        <input type="text" id="playerName" placeholder="Nhập tên của bạn để bắt đầu">
+        <br>
+        <button id="startMath">Bắt đầu Game Tính Toán</button>
+        <button id="startCounting">Bắt đầu Game Đếm Số</button>
+
+        <h2>Log từ Server:</h2>
+        <div id="logs"></div>
+    </div>
+
+    <div class="history">
+        <h1>Lịch sử chơi</h1>
+        <div id="history-data">Chưa có dữ liệu. Hãy chơi một ván để xem lịch sử.</div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const socket = io('http://127.0.0.1:5000');
+        const statusEl = document.getElementById('status');
+        const logsEl = document.getElementById('logs');
+        const historyDataEl = document.getElementById('history-data');
+        const playerNameInput = document.getElementById('playerName');
+
+        function addLog(message) {
+            const time = new Date().toLocaleTimeString();
+            logsEl.innerHTML += `<div class="log-message">[${time}] ${message}</div>`;
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+
+        function updateHistory(history) {
+            historyDataEl.innerHTML = '';
+            addLog('SERVER > HISTORY_UPDATE: Đã nhận dữ liệu lịch sử.');
+            const mathHistory = history.filter(h => h[0] === 'Math');
+            const countingHistory = history.filter(h => h[0] === 'Counting');
+
+            historyDataEl.innerHTML += '<h3>Game Tính Toán (5 lần gần nhất)</h3>';
+            if (mathHistory.length > 0) {
+                mathHistory.forEach(entry => {
+                    historyDataEl.innerHTML += `<div class="history-entry"><span>Điểm: ${entry[1]}</span></div>`;
+                });
+            } else {
+                historyDataEl.innerHTML += 'Chưa có lượt chơi nào.';
+            }
+
+            historyDataEl.innerHTML += '<h3>Game Đếm Số (5 lần gần nhất)</h3>';
+            if (countingHistory.length > 0) {
+                countingHistory.forEach(entry => {
+                    historyDataEl.innerHTML += `<div class="history-entry"><span>Điểm: ${entry[1]}</span></div>`;
+                });
+            } else {
+                historyDataEl.innerHTML += 'Chưa có lượt chơi nào.';
+            }
+        }
+
+        // --- LẮNG NGHE SỰ KIỆN TỪ SERVER ---
+        socket.on('connect', () => {
+            statusEl.textContent = 'Đã kết nối!';
+            statusEl.style.color = 'lime';
+            addLog('INFO: Kết nối tới server thành công.');
+        });
+
+        socket.on('new_question', (data) => addLog(`SERVER > NEW_QUESTION: Câu hỏi ${data.question_count}: "${data.question_text}"`));
+        socket.on('show_result', (data) => addLog(`SERVER > SHOW_RESULT: Kết quả: ${data.is_correct ? 'ĐÚNG' : 'SAI'}. Điểm mới: ${data.new_score}`));
+        
+        socket.on('game_over', (data) => {
+            addLog(`SERVER > GAME_OVER: Trò chơi kết thúc! Điểm cuối cùng: ${data.final_score}`);
+            updateHistory(data.history);
+            addLog('-----------------------------------');
+        });
+
+        // --- GỬI SỰ KIỆN TỚI SERVER ---
+        function startGame(mode) {
+            const playerName = playerNameInput.value;
+            if (!playerName) {
+                alert('Vui lòng nhập tên của bạn!');
+                return;
+            }
+            addLog(`CLIENT > START_GAME: Yêu cầu bắt đầu game ${mode} cho người chơi ${playerName}.`);
+            logsEl.innerHTML = ''; // Xóa log cũ
+            socket.emit('start_game', { name: playerName, game_mode: mode });
+        }
+
+        document.getElementById('startMath').onclick = () => startGame('Math');
+        document.getElementById('startCounting').onclick = () => startGame('Counting');
+    </script>
+</body>
+</html>

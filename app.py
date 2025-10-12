@@ -129,6 +129,7 @@ def handle_start_game(data):
         socketio.sleep(3) # Chờ 3 giây để client hiển thị kết quả
 
 
+
     # 6. Game kết thúc, lưu kết quả và gửi lại lịch sử
     final_score = state['score']
     save_game_result(player_name, final_score, game_mode)

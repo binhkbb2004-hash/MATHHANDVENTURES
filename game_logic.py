@@ -1,4 +1,4 @@
-# Tên file: game_logic.py (Phiên bản hỗ trợ 2 game)
+# Tên file: game_logic.py
 
 import random
 

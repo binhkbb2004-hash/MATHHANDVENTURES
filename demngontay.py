@@ -1,4 +1,4 @@
-# Tên file: demngontay.py (Phiên bản hiển thị text)
+# Tên file: demngontay.py
 
 import cv2
 import mediapipe as mp
@@ -63,7 +63,7 @@ class HandDetector:
                 fingers.append(0)
         return fingers.count(1)
 
-# --- PHẦN CHẠY THỬ ĐÃ QUAY VỀ HIỂN THỊ BẰNG VĂN BẢN ---
+# --- PHẦN CHẠY THỬ ---
 def main():
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 

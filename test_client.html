@@ -35,10 +35,7 @@
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
     <script>
-        // --- ĐÂY LÀ THAY ĐỔI QUAN TRỌNG NHẤT ---
-        // Kết nối tới server Render của bạn
-        const socket = io('https://mathhandventures.onrender.com');
-
+        const socket = io('https://mathhandventures.onrender.com'); // Kết nối tới server Render
         const statusEl = document.getElementById('status');
         const logsEl = document.getElementById('logs');
         const historyDataEl = document.getElementById('history-data');
@@ -50,25 +47,30 @@
             logsEl.scrollTop = logsEl.scrollHeight;
         }
 
+        // --- HÀM UPDATEHISTORY ĐÃ ĐƯỢC SỬA LỖI ---
         function updateHistory(history) {
             historyDataEl.innerHTML = '';
             addLog('SERVER > HISTORY_UPDATE: Đã nhận dữ liệu lịch sử.');
-            const mathHistory = history.filter(h => h[0] === 'Math');
-            const countingHistory = history.filter(h => h[0] === 'Counting');
+            
+            // Lọc dữ liệu theo định dạng object mới (entry.mode)
+            const mathHistory = history.filter(entry => entry.mode === 'Math');
+            const countingHistory = history.filter(entry => entry.mode === 'Counting');
 
-            historyDataEl.innerHTML += '<h3>Game Tính Toán (5 lần gần nhất)</h3>';
+            historyDataEl.innerHTML += '<h3>Game Tính Toán (10 lần gần nhất)</h3>';
             if (mathHistory.length > 0) {
+                // Hiển thị dữ liệu theo định dạng object mới (entry.score)
                 mathHistory.forEach(entry => {
-                    historyDataEl.innerHTML += `<div class="history-entry"><span>Điểm: ${entry[1]}</span></div>`;
+                    historyDataEl.innerHTML += `<div class="history-entry"><span>Điểm: ${entry.score}</span></div>`;
                 });
             } else {
                 historyDataEl.innerHTML += 'Chưa có lượt chơi nào.';
             }
 
-            historyDataEl.innerHTML += '<h3>Game Đếm Số (5 lần gần nhất)</h3>';
+            historyDataEl.innerHTML += '<h3>Game Đếm Số (10 lần gần nhất)</h3>';
             if (countingHistory.length > 0) {
+                // Hiển thị dữ liệu theo định dạng object mới (entry.score)
                 countingHistory.forEach(entry => {
-                    historyDataEl.innerHTML += `<div class="history-entry"><span>Điểm: ${entry[1]}</span></div>`;
+                    historyDataEl.innerHTML += `<div class="history-entry"><span>Điểm: ${entry.score}</span></div>`;
                 });
             } else {
                 historyDataEl.innerHTML += 'Chưa có lượt chơi nào.';

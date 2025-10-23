@@ -57,9 +57,8 @@
 
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-        const socket = io('http://127.0.0.1:5000'); // Kết nối tới server local để test
+        const socket = io('https://mathhandventures.onrender.com'); // Kết nối tới server Render
         
-        // Lấy các element từ HTML
         const statusEl = document.getElementById('status');
         const loginSection = document.getElementById('login-section');
         const adminPanel = document.getElementById('admin-panel');
@@ -71,24 +70,18 @@
         const historyDataEl = document.getElementById('history-data');
 
         // --- LẮNG NGHE SỰ KIỆN TỪ SERVER ---
-        socket.on('connect', () => {
-            statusEl.textContent = 'Đã kết nối!';
-            statusEl.style.color = 'lime';
-        });
+        socket.on('connect', () => { statusEl.textContent = 'Đã kết nối!'; statusEl.style.color = 'lime'; });
 
         socket.on('admin_login_success', () => {
-            alert('Đăng nhập thành công!');
             loginSection.style.display = 'none';
             adminPanel.style.display = 'block';
-            socket.emit('admin_get_all_users'); // Tự động lấy danh sách user sau khi login
+            refreshUsersBtn.click(); // Tự động làm mới danh sách sau khi login
         });
 
-        socket.on('admin_login_fail', () => {
-            alert('Sai mật khẩu!');
-        });
+        socket.on('admin_login_fail', () => { alert('Sai mật khẩu!'); });
 
         socket.on('admin_user_list', (data) => {
-            userTableBody.innerHTML = ''; // Xóa bảng cũ
+            userTableBody.innerHTML = '';
             data.users.forEach(user => {
                 const row = `
                     <tr>
@@ -111,31 +104,17 @@
             const countingHistory = data.history.filter(h => h.mode === 'Counting');
 
             historyDataEl.innerHTML += '<h3>Game Tính Toán</h3>';
-            if (mathHistory.length > 0) {
-                mathHistory.forEach(h => {
-                    historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`;
-                });
-            } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
+            if (mathHistory.length > 0) { mathHistory.forEach(h => { historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`; }); } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
             
             historyDataEl.innerHTML += '<h3>Game Đếm Số</h3>';
-            if (countingHistory.length > 0) {
-                countingHistory.forEach(h => {
-                    historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`;
-                });
-            } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
+            if (countingHistory.length > 0) { countingHistory.forEach(h => { historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`; }); } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
         });
 
         // --- GỬI SỰ KIỆN TỚI SERVER ---
-        loginBtn.onclick = () => {
-            const password = adminPasswordInput.value;
-            socket.emit('admin_login', { password: password });
-        };
+        loginBtn.onclick = () => { socket.emit('admin_login', { password: adminPasswordInput.value }); };
         
-        refreshUsersBtn.onclick = () => {
-            socket.emit('admin_get_all_users');
-        };
+        refreshUsersBtn.onclick = () => { socket.emit('admin_get_all_users'); };
 
-        // Bắt sự kiện click trên toàn bộ bảng
         userTableBody.addEventListener('click', (event) => {
             const target = event.target;
             const userId = target.getAttribute('data-id');
@@ -150,18 +129,17 @@
                 const newName = prompt(`Nhập tên mới cho '${userName}':`);
                 if (newName && newName.trim() !== '') {
                     socket.emit('admin_update_user_name', { user_id: userId, new_name: newName });
-                    setTimeout(() => socket.emit('admin_get_all_users'), 500); // Chờ 0.5s rồi làm mới
+                    setTimeout(() => refreshUsersBtn.click(), 500);
                 }
             }
             
             if (target.classList.contains('btn-delete')) {
                 if (confirm(`Bạn có chắc chắn muốn xóa '${userName}' và toàn bộ lịch sử chơi?`)) {
                     socket.emit('admin_delete_user', { user_id: userId });
-                    setTimeout(() => socket.emit('admin_get_all_users'), 500); // Chờ 0.5s rồi làm mới
+                    setTimeout(() => refreshUsersBtn.click(), 500);
                 }
             }
         });
-
     </script>
 </body>
 </html>

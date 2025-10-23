@@ -1,3 +1,4 @@
+# Tên file: app.py (Phiên bản Admin Panel, đã sửa lỗi)
 
 import os
 import cv2
@@ -6,7 +7,7 @@ import base64
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 
-# IMPORT CÁC HÀM MỚI TỪ DATABASE.PY 
+# Import các hàm từ các module khác
 from demngontay import HandDetector
 from game_logic import generate_math_problem, generate_counting_problem, check_answer
 from database import (
@@ -21,8 +22,7 @@ from database import (
 
 # --- KHỞI TẠO SERVER ---
 app = Flask(__name__)
-# Mật khẩu admin đơn giản. Trong dự án thực tế, nên dùng cách bảo mật hơn.
-app.config['SECRET_KEY'] = 'admin123'
+app.config['SECRET_KEY'] = 'admin123' # Mật khẩu admin
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 init_db()
@@ -69,11 +69,13 @@ def handle_process_frame(data):
 def handle_start_game(data):
     client_id = request.sid
     game_mode = data.get('game_mode')
-    player_name = data.get('name')
+    
+    # --- THAY ĐỔI DUY NHẤT NẰM Ở ĐÂY ---
+    # Thêm .strip() để xóa khoảng trắng thừa ở đầu và cuối tên
+    player_name = data.get('name', '').strip() 
 
     if not player_name: return
 
-    # --- SỬ DỤNG HÀM MỚI ĐỂ LẤY USER_ID ---
     user_id = find_or_create_user(player_name)
 
     game_states[client_id] = {
@@ -101,13 +103,11 @@ def handle_start_game(data):
         socketio.sleep(3)
 
     final_score = state['score']
-    # --- SỬ DỤNG USER_ID ĐỂ LƯU KẾT QUẢ ---
     save_game_result(user_id, final_score, game_mode)
     history = get_player_history(user_id)
     emit('game_over', {'final_score': final_score, 'history': history})
 
-# --- BƯỚC 2: THÊM CÁC SỰ KIỆN DÀNH CHO ADMIN ---
-
+# --- CÁC SỰ KIỆN DÀNH CHO ADMIN ---
 @socketio.on('admin_login')
 def handle_admin_login(data):
     password = data.get('password')

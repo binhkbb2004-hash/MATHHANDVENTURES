@@ -1,4 +1,4 @@
-# Tên file: app.py (Phiên bản hỗ trợ Game 3)
+# Tên file: app.py
 
 import os
 import cv2
@@ -7,19 +7,20 @@ import base64
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 
-# --- IMPORT CÁC HÀM MỚI TỪ GAME_LOGIC.PY ---
+# --- IMPORT CÁC HÀM MỚI TỪ DATABASE.PY ---
 from demngontay import HandDetector
 from game_logic import (
     generate_math_problem, 
     generate_counting_problem, 
     generate_missing_number_problem, 
-    generate_random_challenge,  # <<< HÀM MỚI
+    generate_random_challenge,
     check_answer
 )
 from database import (
     init_db, find_or_create_user, save_game_result, get_player_history,
     get_all_users, update_user_name, delete_user_and_history, update_user_avatar,
-    get_total_users_count, get_total_games_played_count
+    get_total_users_count,
+    get_game_statistics_by_mode # <<< THAY ĐỔI IMPORT
 )
 
 # --- KHỞI TẠO SERVER ---
@@ -39,7 +40,7 @@ def base64_to_image(base64_string):
     image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
     return image
 
-# --- CÁC SỰ KIỆN WEBSOCKET CỦA NGƯỜI CHƠI ---
+# --- SỰ KIỆN CỦA NGƯỜI CHƠI (Giữ nguyên) ---
 @socketio.on('connect')
 def handle_connect():
     print(f">>> Client da ket noi: {request.sid}")
@@ -52,7 +53,6 @@ def handle_disconnect():
 
 @socketio.on('process_frame')
 def handle_process_frame(data):
-    # (Hàm này giữ nguyên)
     client_id = request.sid
     if client_id not in game_states: return
     frame = base64_to_image(data['image'])
@@ -64,11 +64,9 @@ def handle_process_frame(data):
             landmarks = detector.get_landmarks(frame, hand_no=i)
             if landmarks:
                 total_finger_count += detector.count_fingers(landmarks, handedness)
-    # Chỉ cập nhật nếu game đang ở trạng thái chơi
     if game_states[client_id].get('state') == 'Playing':
         game_states[client_id]['last_finger_count'] = total_finger_count
     emit('finger_count_update', {'count': total_finger_count})
-
 
 @socketio.on('start_game')
 def handle_start_game(data):
@@ -82,7 +80,6 @@ def handle_start_game(data):
     user_id = user_info['user_id']
     avatar_id = user_info['avatar_id']
 
-    # Tạo trạng thái game cơ bản
     game_states[client_id] = {
         'user_id': user_id, 'avatar_id': avatar_id, 'game_mode': game_mode, 
         'score': 0, 'question_count': 0, 'correct_answer': None, 
@@ -92,7 +89,6 @@ def handle_start_game(data):
     
     emit('player_info_updated', {'name': player_name, 'avatar_id': avatar_id})
 
-    # --- LOGIC CHO GAME 1 VÀ 2 (10 CÂU HỎI) ---
     if game_mode == 'Math' or game_mode == 'Counting':
         for q_num in range(10):
             state['question_count'] = q_num + 1
@@ -102,97 +98,57 @@ def handle_start_game(data):
             else:
                 question, answer = generate_counting_problem()
                 q_type = 'Counting'
-                
             state['correct_answer'] = answer
             emit('new_question', {'question_type': q_type, 'question_text': question, 'question_count': state['question_count']})
-            
             for i in range(10, -1, -1):
                 emit('timer_update', {'time': i})
                 socketio.sleep(1)
-            
             user_answer = state['last_finger_count']
             is_correct = check_answer(user_answer, state['correct_answer'])
             if is_correct: state['score'] += 10
-            
             emit('show_result', {'is_correct': is_correct, 'correct_answer': state['correct_answer'], 'new_score': state['score']})
             socketio.sleep(3)
-
         final_score = state['score']
     
-    # --- LOGIC MỚI CHO GAME 3 (VƯỢT CHƯỚNG NGẠI VẬT) ---
     elif game_mode == 'Obstacle':
         state['current_milestone'] = 1
         state['highest_milestone'] = 1
         state['exit_requested'] = False
-        
         while state['current_milestone'] <= 20:
-            # 1. Tạo câu hỏi ngẫu nhiên
             q_type, question, answer = generate_random_challenge()
             state['correct_answer'] = answer
-            
-            # 2. Gửi câu hỏi (mốc) cho client
-            emit('new_question', {
-                'question_type': q_type, 
-                'question_text': question, 
-                'milestone': state['current_milestone']
-            })
-            
-            # 3. Gửi thông báo phần thưởng (nếu có)
+            emit('new_question', {'question_type': q_type, 'question_text': question, 'milestone': state['current_milestone']})
             if state['current_milestone'] in [10, 15, 20]:
                 emit('reward_unlocked', {'milestone': state['current_milestone']})
-                socketio.sleep(1) # Chờ 1s cho client hiển thị
-            
-            # 4. Chạy đồng hồ đếm ngược
+                socketio.sleep(1)
             for i in range(10, -1, -1):
                 emit('timer_update', {'time': i})
                 socketio.sleep(1)
-                # Kiểm tra xem client có nhấn nút thoát không
-                if state.get('exit_requested', False):
-                    break
-            
-            if state.get('exit_requested', False):
-                break # Thoát khỏi vòng lặp 'while'
-                
-            # 5. Hết giờ, chốt đáp án
+                if state.get('exit_requested', False): break
+            if state.get('exit_requested', False): break
             user_answer = state['last_finger_count']
             is_correct = check_answer(user_answer, state['correct_answer'])
-            
-            # 6. Tính toán mốc mới
             if is_correct:
                 state['current_milestone'] += 1
-                # Cập nhật mốc cao nhất
                 if state['current_milestone'] > state['highest_milestone']:
                     state['highest_milestone'] = state['current_milestone']
             else:
-                # Tụt xuống 2 mốc, nhưng không thấp hơn 1
                 state['current_milestone'] = max(1, state['current_milestone'] - 2)
-            
-            # 7. Gửi kết quả mốc
-            emit('show_result', {
-                'is_correct': is_correct,
-                'correct_answer': state['correct_answer'],
-                'new_milestone': state['current_milestone']
-            })
-            socketio.sleep(3) # Chờ 3s
-
-        # 8. Game kết thúc (hoặc do thắng, hoặc do thoát)
-        # Điểm số cuối cùng là mốc cao nhất đạt được
+            emit('show_result', {'is_correct': is_correct, 'correct_answer': state['correct_answer'], 'new_milestone': state['current_milestone']})
+            socketio.sleep(3)
         final_score = state['highest_milestone']
-        if state['current_milestone'] > 20: # Nếu thắng
-            final_score = 20 # Mốc cao nhất là 20
+        if state['current_milestone'] > 20:
+            final_score = 20
         
-    # --- LƯU KẾT QUẢ VÀ KẾT THÚC GAME ---
     save_game_result(user_id, final_score, game_mode)
     history = get_player_history(user_id)
     emit('game_over', {'final_score': final_score, 'history': history})
     
-    # Xóa trạng thái game
     if client_id in game_states:
         del game_states[client_id]
 
 @socketio.on('player_update_avatar')
 def handle_player_update_avatar(data):
-    # (Hàm này giữ nguyên)
     client_id = request.sid
     if client_id not in game_states:
         emit('avatar_update_fail', {'message': 'Bạn cần bắt đầu game trước.'})
@@ -204,13 +160,11 @@ def handle_player_update_avatar(data):
         if success:
             game_states[client_id]['avatar_id'] = avatar_id
             emit('avatar_update_success', {'avatar_id': avatar_id})
-            print(f">>> User {user_id} đã cập nhật avatar thành {avatar_id}")
         else:
             emit('avatar_update_fail', {'message': 'Không thể cập nhật avatar.'})
     else:
         emit('avatar_update_fail', {'message': 'Dữ liệu không hợp lệ.'})
         
-# --- SỰ KIỆN MỚI: XỬ LÝ NÚT THOÁT GAME ---
 @socketio.on('player_exit_game')
 def handle_player_exit_game():
     client_id = request.sid
@@ -218,10 +172,9 @@ def handle_player_exit_game():
         print(f">>> Client {client_id} yeu cau thoat game.")
         game_states[client_id]['exit_requested'] = True
 
-# --- CÁC SỰ KIỆN ADMIN (Giữ nguyên) ---
+# --- SỰ KIỆN ADMIN (Giữ nguyên) ---
 @socketio.on('admin_login')
 def handle_admin_login(data):
-    # (Giữ nguyên)
     password = data.get('password')
     if password == app.config['SECRET_KEY']:
         emit('admin_login_success')
@@ -230,13 +183,11 @@ def handle_admin_login(data):
 
 @socketio.on('admin_get_all_users')
 def handle_admin_get_all_users():
-    # (Giữ nguyên)
     users = get_all_users()
     emit('admin_user_list', {'users': users})
 
 @socketio.on('admin_get_user_history')
 def handle_admin_get_user_history(data):
-    # (GiTữ nguyên)
     user_id = data.get('user_id')
     if user_id:
         history = get_player_history(user_id)
@@ -244,7 +195,6 @@ def handle_admin_get_user_history(data):
 
 @socketio.on('admin_update_user_name')
 def handle_admin_update_user_name(data):
-    # (Giữ nguyên)
     user_id = data.get('user_id')
     new_name = data.get('new_name')
     if user_id and new_name:
@@ -253,18 +203,24 @@ def handle_admin_update_user_name(data):
 
 @socketio.on('admin_delete_user')
 def handle_admin_delete_user(data):
-    # (GiTữ nguyên)
     user_id = data.get('user_id')
     if user_id:
         delete_user_and_history(user_id)
         emit('admin_delete_user_response', {'success': True})
 
+# --- SỰ KIỆN THỐNG KÊ ĐÃ CẬP NHẬT ---
 @socketio.on('admin_get_statistics')
 def handle_admin_get_statistics():
-    # (Giữ nguyên)
+    """Lấy và gửi dữ liệu thống kê chung cho Admin (đã phân loại)."""
     total_users = get_total_users_count()
-    total_games = get_total_games_played_count()
-    emit('admin_statistics_data', {'total_users': total_users, 'total_games': total_games})
+    game_stats = get_game_statistics_by_mode() # <<< GỌI HÀM MỚI
+    
+    print(f">>> Admin yeu cau thong ke: {total_users} users, stats: {game_stats}")
+    
+    emit('admin_statistics_data', {
+        'total_users': total_users,
+        'game_stats': game_stats # <<< GỬI DỮ LIỆU MỚI
+    })
 
 # --- CHẠY SERVER ---
 if __name__ == '__main__':

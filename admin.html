@@ -39,7 +39,8 @@
                         <tr>
                             <th>ID</th>
                             <th>Tên người chơi</th>
-                            <th>Avatar ID</th> <th>Hành động</th>
+                            <th>Avatar ID</th>
+                            <th>Hành động</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -72,34 +73,4 @@
         socket.on('admin_login_success', () => { loginSection.style.display = 'none'; adminPanel.style.display = 'block'; refreshUsersBtn.click(); });
         socket.on('admin_login_fail', () => { alert('Sai mật khẩu!'); });
 
-        socket.on('admin_user_list', (data) => {
-            userTableBody.innerHTML = '';
-            data.users.forEach(user => {
-                const row = `
-                    <tr>
-                        <td>${user.id}</td>
-                        <td>${user.name}</td>
-                        <td>${user.avatar_id}</td> <td>
-                            <button class="btn-view" data-id="${user.id}" data-name="${user.name}">Xem</button>
-                            <button class="btn-edit" data-id="${user.id}" data-name="${user.name}">Sửa</button>
-                            <button class="btn-delete" data-id="${user.id}" data-name="${user.name}">Xóa</button>
-                        </td>
-                    </tr>
-                `;
-                userTableBody.innerHTML += row;
-            });
-        });
-
-        socket.on('admin_user_history_data', (data) => {
-            historyDataEl.innerHTML = '';
-            const mathHistory = data.history.filter(h => h.mode === 'Math');
-            const countingHistory = data.history.filter(h => h.mode === 'Counting');
-            historyDataEl.innerHTML += '<h3>Game Tính Toán</h3>';
-            if (mathHistory.length > 0) { mathHistory.forEach(h => { historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`; }); } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
-            historyDataEl.innerHTML += '<h3>Game Đếm Số</h3>';
-            if (countingHistory.length > 0) { countingHistory.forEach(h => { historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`; }); } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
-        });
-
-        // --- GỬI SỰ KIỆN TỚI SERVER ---
-        loginBtn.onclick = () => { socket.emit('admin_login', { password: adminPasswordInput.value }); };
-        refreshUsersBtn.onclick = () => { socket.emit
+        socket.on('admin_user_list

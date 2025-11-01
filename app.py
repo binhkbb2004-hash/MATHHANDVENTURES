@@ -7,7 +7,7 @@ import base64
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 
-# --- IMPORT CÁC HÀM MỚI TỪ DATABASE.PY ---
+# Import các module
 from demngontay import HandDetector
 from game_logic import (
     generate_math_problem, 
@@ -19,8 +19,7 @@ from game_logic import (
 from database import (
     init_db, find_or_create_user, save_game_result, get_player_history,
     get_all_users, update_user_name, delete_user_and_history, update_user_avatar,
-    get_total_users_count,
-    get_game_statistics_by_mode # <<< THAY ĐỔI IMPORT
+    get_total_users_count, get_game_statistics_by_mode
 )
 
 # --- KHỞI TẠO SERVER ---
@@ -30,7 +29,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 init_db()
 detector = HandDetector(max_hands=2, detection_con=0.8)
-game_states = {}
+game_states = {} # Dùng để lưu trạng thái của client
 
 def base64_to_image(base64_string):
     if "," in base64_string:
@@ -40,16 +39,45 @@ def base64_to_image(base64_string):
     image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
     return image
 
-# --- SỰ KIỆN CỦA NGƯỜI CHƠI (Giữ nguyên) ---
+# --- CÁC SỰ KIỆN WEBSOCKET CỦA NGƯỜI CHƠI ---
 @socketio.on('connect')
 def handle_connect():
     print(f">>> Client da ket noi: {request.sid}")
+    game_states[request.sid] = {'state': 'Connected'}
 
 @socketio.on('disconnect')
 def handle_disconnect():
     if request.sid in game_states:
         del game_states[request.sid]
     print(f">>> Client da ngat ket noi: {request.sid}")
+
+@socketio.on('player_login')
+def handle_player_login(data):
+    client_id = request.sid
+    player_name = data.get('name', '').strip()
+    if not player_name:
+        emit('login_fail', {'message': 'Tên không hợp lệ.'})
+        return
+
+    user_info = find_or_create_user(player_name)
+    
+    game_states[client_id] = {
+        'user_id': user_info['user_id'],
+        'avatar_id': user_info['avatar_id'],
+        'player_name': player_name,
+        'state': 'MainMenu'
+    }
+    
+    print(f">>> User {player_name} (ID: {user_info['user_id']}) da dang nhap.")
+    emit('player_info_updated', {'name': player_name, 'avatar_id': user_info['avatar_id']})
+
+@socketio.on('player_logout')
+def handle_player_logout():
+    client_id = request.sid
+    if client_id in game_states:
+        print(f">>> User {game_states[client_id].get('player_name')} da dang xuat.")
+        game_states[client_id] = {'state': 'Connected'}
+    emit('logout_success')
 
 @socketio.on('process_frame')
 def handle_process_frame(data):
@@ -72,22 +100,21 @@ def handle_process_frame(data):
 def handle_start_game(data):
     client_id = request.sid
     game_mode = data.get('game_mode')
-    player_name = data.get('name', '').strip() 
-
-    if not player_name: return
-
-    user_info = find_or_create_user(player_name)
-    user_id = user_info['user_id']
-    avatar_id = user_info['avatar_id']
-
-    game_states[client_id] = {
-        'user_id': user_id, 'avatar_id': avatar_id, 'game_mode': game_mode, 
-        'score': 0, 'question_count': 0, 'correct_answer': None, 
-        'last_finger_count': 0, 'state': 'Playing'
-    }
-    state = game_states[client_id]
     
-    emit('player_info_updated', {'name': player_name, 'avatar_id': avatar_id})
+    if client_id not in game_states or 'user_id' not in game_states[client_id]:
+        emit('game_over', {'final_score': 0, 'history': []})
+        return
+
+    state = game_states[client_id]
+    user_id = state['user_id']
+    
+    state.update({
+        'game_mode': game_mode, 'score': 0, 'question_count': 0, 
+        'correct_answer': None, 'last_finger_count': 0, 'state': 'Playing',
+        'exit_requested': False
+    })
+
+    final_score = 0 
 
     if game_mode == 'Math' or game_mode == 'Counting':
         for q_num in range(10):
@@ -100,20 +127,30 @@ def handle_start_game(data):
                 q_type = 'Counting'
             state['correct_answer'] = answer
             emit('new_question', {'question_type': q_type, 'question_text': question, 'question_count': state['question_count']})
+            
             for i in range(10, -1, -1):
                 emit('timer_update', {'time': i})
                 socketio.sleep(1)
+                if state.get('exit_requested', False): break
+            
+            if state.get('exit_requested', False):
+                final_score = state['score']
+                break 
+                
             user_answer = state['last_finger_count']
             is_correct = check_answer(user_answer, state['correct_answer'])
             if is_correct: state['score'] += 10
+            
             emit('show_result', {'is_correct': is_correct, 'correct_answer': state['correct_answer'], 'new_score': state['score']})
             socketio.sleep(3)
-        final_score = state['score']
+        
+        if not state.get('exit_requested', False):
+            final_score = state['score']
     
     elif game_mode == 'Obstacle':
         state['current_milestone'] = 1
         state['highest_milestone'] = 1
-        state['exit_requested'] = False
+        
         while state['current_milestone'] <= 20:
             q_type, question, answer = generate_random_challenge()
             state['correct_answer'] = answer
@@ -136,22 +173,22 @@ def handle_start_game(data):
                 state['current_milestone'] = max(1, state['current_milestone'] - 2)
             emit('show_result', {'is_correct': is_correct, 'correct_answer': state['correct_answer'], 'new_milestone': state['current_milestone']})
             socketio.sleep(3)
+        
         final_score = state['highest_milestone']
-        if state['current_milestone'] > 20:
-            final_score = 20
+        if state['current_milestone'] > 20: final_score = 20
         
     save_game_result(user_id, final_score, game_mode)
     history = get_player_history(user_id)
     emit('game_over', {'final_score': final_score, 'history': history})
     
-    if client_id in game_states:
-        del game_states[client_id]
+    state['state'] = 'MainMenu'
+    state['exit_requested'] = False
 
 @socketio.on('player_update_avatar')
 def handle_player_update_avatar(data):
     client_id = request.sid
-    if client_id not in game_states:
-        emit('avatar_update_fail', {'message': 'Bạn cần bắt đầu game trước.'})
+    if client_id not in game_states or 'user_id' not in game_states[client_id]:
+        emit('avatar_update_fail', {'message': 'Bạn cần đăng nhập trước.'})
         return
     user_id = game_states[client_id]['user_id']
     avatar_id = data.get('avatar_id')
@@ -172,14 +209,16 @@ def handle_player_exit_game():
         print(f">>> Client {client_id} yeu cau thoat game.")
         game_states[client_id]['exit_requested'] = True
 
-# --- SỰ KIỆN ADMIN (Giữ nguyên) ---
+# --- CÁC SỰ KIỆN ADMIN (Đầy đủ) ---
 @socketio.on('admin_login')
 def handle_admin_login(data):
     password = data.get('password')
     if password == app.config['SECRET_KEY']:
         emit('admin_login_success')
+        print(">>> Admin da dang nhap thanh cong.")
     else:
         emit('admin_login_fail')
+        print(">>> Co nguoi dang nhap Admin that bai.")
 
 @socketio.on('admin_get_all_users')
 def handle_admin_get_all_users():
@@ -208,18 +247,16 @@ def handle_admin_delete_user(data):
         delete_user_and_history(user_id)
         emit('admin_delete_user_response', {'success': True})
 
-# --- SỰ KIỆN THỐNG KÊ ĐÃ CẬP NHẬT ---
 @socketio.on('admin_get_statistics')
 def handle_admin_get_statistics():
-    """Lấy và gửi dữ liệu thống kê chung cho Admin (đã phân loại)."""
     total_users = get_total_users_count()
-    game_stats = get_game_statistics_by_mode() # <<< GỌI HÀM MỚI
+    game_stats = get_game_statistics_by_mode()
     
     print(f">>> Admin yeu cau thong ke: {total_users} users, stats: {game_stats}")
     
     emit('admin_statistics_data', {
         'total_users': total_users,
-        'game_stats': game_stats # <<< GỬI DỮ LIỆU MỚI
+        'game_stats': game_stats
     })
 
 # --- CHẠY SERVER ---

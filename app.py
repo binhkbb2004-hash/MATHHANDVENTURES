@@ -1,14 +1,11 @@
-# Tên file: app.py
+# Tên file: app.py (Phiên bản Client-Side AI - Không cv2)
 
 import os
-import cv2
-import numpy as np
-import base64
+# --- KHÔNG CÓ import cv2, numpy, base64 ---
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 
-# Import các module
-from demngontay import HandDetector
+# --- KHÔNG IMPORT demngontay ---
 from game_logic import (
     generate_math_problem, 
     generate_counting_problem, 
@@ -28,16 +25,10 @@ app.config['SECRET_KEY'] = 'admin123'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 init_db()
-detector = HandDetector(max_hands=2, detection_con=0.8)
+# --- KHÔNG CẦN HandDetector ---
 game_states = {} # Dùng để lưu trạng thái của client
 
-def base64_to_image(base64_string):
-    if "," in base64_string:
-        base64_string = base64_string.split(',')[1]
-    img_bytes = base64.b64decode(base64_string)
-    np_arr = np.frombuffer(img_bytes, np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    return image
+# --- KHÔNG CẦN HÀM base64_to_image ---
 
 # --- HÀM MỚI: TÁCH RIÊNG VÒNG LẶP GAME ---
 def run_game_loop(client_id, game_mode, user_id):
@@ -48,7 +39,6 @@ def run_game_loop(client_id, game_mode, user_id):
     try:
         if game_mode == 'Math' or game_mode == 'Counting':
             for q_num in range(10):
-                # Kiểm tra cờ thoát ở ĐẦU mỗi câu hỏi
                 if state.get('exit_requested', False):
                     final_score = state['score']
                     break
@@ -65,8 +55,7 @@ def run_game_loop(client_id, game_mode, user_id):
                 
                 for i in range(10, -1, -1):
                     socketio.emit('timer_update', {'time': i}, to=client_id)
-                    socketio.sleep(1) # Sleep (nhưng không block server)
-                    # Kiểm tra cờ thoát TRONG lúc đếm ngược
+                    socketio.sleep(1) 
                     if state.get('exit_requested', False):
                         break
                 
@@ -121,7 +110,6 @@ def run_game_loop(client_id, game_mode, user_id):
                 final_score = state['highest_milestone']
                 if state['current_milestone'] > 20: final_score = 20
         
-        # --- LƯU KẾT QUẢ VÀ KẾT THÚC GAME ---
         save_game_result(user_id, final_score, game_mode)
         history = get_player_history(user_id)
         socketio.emit('game_over', {'final_score': final_score, 'history': history}, to=client_id)
@@ -131,7 +119,6 @@ def run_game_loop(client_id, game_mode, user_id):
         
     except Exception as e:
         print(f"Loi trong game loop cho {client_id}: {e}")
-        # Đảm bảo client được giải phóng
         if client_id in game_states:
             state['state'] = 'MainMenu'
         socketio.emit('game_over', {'final_score': final_score, 'history': []}, to=client_id)
@@ -173,28 +160,18 @@ def handle_player_logout():
         game_states[client_id] = {'state': 'Connected'}
     emit('logout_success')
 
-@socketio.on('process_frame')
-def handle_process_frame(data):
+@socketio.on('client_finger_count')
+def handle_client_finger_count(data):
+    """Nhận SỐ ĐẾM (count) trực tiếp từ client và cập nhật state."""
     client_id = request.sid
     if client_id not in game_states: return
-    frame = base64_to_image(data['image'])
-    frame = detector.find_hands(frame, draw=False)
-    total_finger_count = 0
-    if detector.results.multi_hand_landmarks:
-        for i in range(len(detector.results.multi_hand_landmarks)):
-            handedness = detector.results.multi_handedness[i].classification[0].label
-            landmarks = detector.get_landmarks(frame, hand_no=i)
-            if landmarks:
-                total_finger_count += detector.count_fingers(landmarks, handedness)
+    count = data.get('count', 0)
     if game_states[client_id].get('state') == 'Playing':
-        game_states[client_id]['last_finger_count'] = total_finger_count
-    emit('finger_count_update', {'count': total_finger_count})
+        game_states[client_id]['last_finger_count'] = count
 
 @socketio.on('start_game')
 def handle_start_game(data):
-    """
-    Hàm này giờ chỉ khởi tạo state và BẮT ĐẦU tác vụ nền, không chạy vòng lặp.
-    """
+    """Bắt đầu tác vụ nền cho game loop."""
     client_id = request.sid
     game_mode = data.get('game_mode')
     
@@ -205,14 +182,12 @@ def handle_start_game(data):
     state = game_states[client_id]
     user_id = state['user_id']
     
-    # Cập nhật trạng thái
     state.update({
         'game_mode': game_mode, 'score': 0, 'question_count': 0, 
         'correct_answer': None, 'last_finger_count': 0, 'state': 'Playing',
         'exit_requested': False
     })
     
-    # Bắt đầu vòng lặp game trong một luồng riêng
     socketio.start_background_task(run_game_loop, client_id, game_mode, user_id)
 
 @socketio.on('player_update_avatar')
@@ -235,9 +210,7 @@ def handle_player_update_avatar(data):
         
 @socketio.on('player_exit_game')
 def handle_player_exit_game():
-    """
-    Hàm này giờ sẽ hoạt động ngay lập tức vì server không bị block.
-    """
+    """Hàm này giờ sẽ hoạt động ngay lập tức vì server không bị block."""
     client_id = request.sid
     if client_id in game_states and game_states[client_id]['state'] == 'Playing':
         print(f">>> Client {client_id} yeu cau thoat game.")

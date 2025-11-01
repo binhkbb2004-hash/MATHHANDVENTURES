@@ -1,4 +1,4 @@
-# Tên file: app.py (Đã sửa lỗi Thoát game)
+# Tên file: app.py
 
 import os
 import cv2
@@ -190,7 +190,6 @@ def handle_process_frame(data):
         game_states[client_id]['last_finger_count'] = total_finger_count
     emit('finger_count_update', {'count': total_finger_count})
 
-# --- HÀM START_GAME ĐÃ THAY ĐỔI ---
 @socketio.on('start_game')
 def handle_start_game(data):
     """
@@ -244,7 +243,7 @@ def handle_player_exit_game():
         print(f">>> Client {client_id} yeu cau thoat game.")
         game_states[client_id]['exit_requested'] = True
 
-# --- CÁC SỰ KIỆN ADMIN (Giữ nguyên) ---
+# --- CÁC SỰ KIỆN ADMIN (Đầy đủ) ---
 @socketio.on('admin_login')
 def handle_admin_login(data):
     password = data.get('password')

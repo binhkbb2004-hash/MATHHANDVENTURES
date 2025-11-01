@@ -5,7 +5,6 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Sao chép các file yêu cầu và cài đặt thư viện Python
-# (Đã loại bỏ các lệnh 'apt-get install' vì không còn cần OpenCV)
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 

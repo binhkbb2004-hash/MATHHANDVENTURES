@@ -1,4 +1,4 @@
-# Tên file: app.py (Phiên bản Admin Panel, đã sửa lỗi)
+# Tên file: app.py (Phiên bản Admin Panel + Avatar)
 
 import os
 import cv2
@@ -7,7 +7,7 @@ import base64
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 
-# Import các hàm từ các module khác
+# --- BƯỚC 1: IMPORT CÁC HÀM MỚI TỪ DATABASE.PY ---
 from demngontay import HandDetector
 from game_logic import generate_math_problem, generate_counting_problem, check_answer
 from database import (
@@ -17,7 +17,8 @@ from database import (
     get_player_history,
     get_all_users,
     update_user_name,
-    delete_user_and_history
+    delete_user_and_history,
+    update_user_avatar  # <<< IMPORT HÀM MỚI
 )
 
 # --- KHỞI TẠO SERVER ---
@@ -50,7 +51,7 @@ def handle_disconnect():
 
 @socketio.on('process_frame')
 def handle_process_frame(data):
-    # (Hàm này giữ nguyên, không thay đổi)
+    # (Hàm này giữ nguyên)
     client_id = request.sid
     if client_id not in game_states: return
     frame = base64_to_image(data['image'])
@@ -69,21 +70,29 @@ def handle_process_frame(data):
 def handle_start_game(data):
     client_id = request.sid
     game_mode = data.get('game_mode')
-    
-    # --- THAY ĐỔI DUY NHẤT NẰM Ở ĐÂY ---
-    # Thêm .strip() để xóa khoảng trắng thừa ở đầu và cuối tên
     player_name = data.get('name', '').strip() 
 
     if not player_name: return
 
-    user_id = find_or_create_user(player_name)
+    # --- BƯỚC 2: SỬA CÁCH GỌI HÀM find_or_create_user ---
+    # Hàm này giờ trả về dictionary {'user_id': ..., 'avatar_id': ...}
+    user_info = find_or_create_user(player_name)
+    user_id = user_info['user_id']
+    avatar_id = user_info['avatar_id']
 
+    # Lưu trạng thái game
     game_states[client_id] = {
-        'user_id': user_id, 'game_mode': game_mode, 'score': 0,
-        'question_count': 0, 'correct_answer': None, 'last_finger_count': 0
+        'user_id': user_id,
+        'avatar_id': avatar_id, # Lưu lại avatar_id
+        'game_mode': game_mode, 'score': 0, 'question_count': 0,
+        'correct_answer': None, 'last_finger_count': 0
     }
     state = game_states[client_id]
+    
+    # Gửi thông tin user về cho client (bao gồm cả avatar_id)
+    emit('player_info_updated', {'name': player_name, 'avatar_id': avatar_id})
 
+    # Vòng lặp game
     for q_num in range(10):
         state['question_count'] = q_num + 1
         if game_mode == 'Math':
@@ -107,7 +116,30 @@ def handle_start_game(data):
     history = get_player_history(user_id)
     emit('game_over', {'final_score': final_score, 'history': history})
 
-# --- CÁC SỰ KIỆN DÀNH CHO ADMIN ---
+# --- BƯỚC 3: THÊM SỰ KIỆN MỚI CHO AVATAR ---
+@socketio.on('player_update_avatar')
+def handle_player_update_avatar(data):
+    client_id = request.sid
+    # Kiểm tra xem client đã "đăng nhập" (start_game) chưa
+    if client_id not in game_states:
+        emit('avatar_update_fail', {'message': 'Bạn cần bắt đầu game trước.'})
+        return
+
+    user_id = game_states[client_id]['user_id']
+    avatar_id = data.get('avatar_id')
+
+    if avatar_id is not None:
+        success = update_user_avatar(user_id, avatar_id)
+        if success:
+            game_states[client_id]['avatar_id'] = avatar_id # Cập nhật trạng thái
+            emit('avatar_update_success', {'avatar_id': avatar_id})
+            print(f">>> User {user_id} đã cập nhật avatar thành {avatar_id}")
+        else:
+            emit('avatar_update_fail', {'message': 'Không thể cập nhật avatar.'})
+    else:
+        emit('avatar_update_fail', {'message': 'Dữ liệu không hợp lệ.'})
+
+# --- CÁC SỰ KIỆN DÀNH CHO ADMIN (Giữ nguyên) ---
 @socketio.on('admin_login')
 def handle_admin_login(data):
     password = data.get('password')
@@ -120,7 +152,7 @@ def handle_admin_login(data):
 
 @socketio.on('admin_get_all_users')
 def handle_admin_get_all_users():
-    users = get_all_users()
+    users = get_all_users() # Hàm này đã được cập nhật ở database.py
     emit('admin_user_list', {'users': users})
 
 @socketio.on('admin_get_user_history')

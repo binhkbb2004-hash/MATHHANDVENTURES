@@ -1,4 +1,4 @@
-# Tên file: database.py (Phiên bản Admin Panel)
+# Tên file: database.py (Phiên bản Admin Panel + Avatar)
 
 import sqlite3
 from datetime import datetime
@@ -15,16 +15,17 @@ def init_db():
     # Bật khóa ngoại để đảm bảo liên kết dữ liệu
     cursor.execute("PRAGMA foreign_keys = ON")
 
-    # Bảng mới để quản lý người dùng
+    # Bảng Users: Thêm cột avatar_id
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
+        avatar_id INTEGER DEFAULT 0,
         created_at DATETIME NOT NULL
     )
     """)
 
-    # Bảng GameHistory được cập nhật để liên kết với Users
+    # Bảng GameHistory (giữ nguyên, chỉ liên kết bằng user_id)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS GameHistory (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,32 +39,36 @@ def init_db():
     
     conn.commit()
     conn.close()
-    print(">>> Co so du lieu da duoc khoi tao voi cau truc moi (Users & GameHistory).")
+    print(">>> Co so du lieu da duoc khoi tao voi cau truc moi (Users & GameHistory + Avatar).")
 
 def find_or_create_user(name):
     """
     Tìm một người dùng bằng tên. Nếu không tồn tại, tạo mới.
-    :return: ID của người dùng.
+    :return: Một dictionary chứa {'user_id': id, 'avatar_id': id}
     """
     conn = sqlite3.connect(DATABASE_FILE)
+    # Thiết lập để trả về kết quả dạng dictionary
+    conn.row_factory = sqlite3.Row 
     cursor = conn.cursor()
     
     # Thử tìm user bằng tên
-    cursor.execute("SELECT id FROM Users WHERE name = ?", (name,))
+    cursor.execute("SELECT id, avatar_id FROM Users WHERE name = ?", (name,))
     user = cursor.fetchone()
     
     if user:
-        user_id = user[0]
+        user_id = user['id']
+        avatar_id = user['avatar_id']
     else:
         # Nếu không có, tạo user mới
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute("INSERT INTO Users (name, created_at) VALUES (?, ?)", (name, timestamp))
+        cursor.execute("INSERT INTO Users (name, created_at, avatar_id) VALUES (?, ?, 0)", (name, timestamp))
         user_id = cursor.lastrowid
+        avatar_id = 0 # Avatar mặc định khi tạo mới
         print(f">>> Da tao nguoi dung moi: {name} (ID: {user_id})")
         
     conn.commit()
     conn.close()
-    return user_id
+    return {'user_id': user_id, 'avatar_id': avatar_id}
 
 def save_game_result(user_id, score, game_mode):
     """
@@ -97,26 +102,28 @@ def get_player_history(user_id):
     Lấy lịch sử chơi của một người dùng dựa vào user_id.
     """
     conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     cursor.execute("SELECT game_mode, score, timestamp FROM GameHistory WHERE user_id = ? ORDER BY game_mode, timestamp DESC", (user_id,))
-    history = cursor.fetchall()
+    history_rows = cursor.fetchall()
     conn.close()
     # Chuyển đổi định dạng để dễ dùng hơn ở Front-end
-    return [{'mode': row[0], 'score': row[1], 'time': row[2]} for row in history]
+    return [{'mode': row['game_mode'], 'score': row['score'], 'time': row['timestamp']} for row in history_rows]
 
-# --- CÁC HÀM MỚI DÀNH CHO ADMIN ---
+# --- CÁC HÀM DÀNH CHO ADMIN ---
 
 def get_all_users():
     """
-    Lấy danh sách tất cả người dùng.
+    Lấy danh sách tất cả người dùng (bao gồm cả avatar_id).
     """
     conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, created_at FROM Users ORDER BY name ASC")
-    users = cursor.fetchall()
+    cursor.execute("SELECT id, name, avatar_id, created_at FROM Users ORDER BY name ASC")
+    users_rows = cursor.fetchall()
     conn.close()
-    return [{'id': row[0], 'name': row[1], 'created_at': row[2]} for row in users]
+    return [{'id': row['id'], 'name': row['name'], 'avatar_id': row['avatar_id'], 'created_at': row['created_at']} for row in users_rows]
 
 def update_user_name(user_id, new_name):
     """
@@ -139,10 +146,29 @@ def delete_user_and_history(user_id):
     """
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.execute("PRAGMA foreign_keys = ON") # Bật khóa ngoại để xóa liên đới
     cursor.execute("DELETE FROM Users WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
+
+# --- HÀM MỚI DÀNH CHO AVATAR ---
+
+def update_user_avatar(user_id, avatar_id):
+    """
+    Cập nhật avatar_id cho một người dùng.
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE Users SET avatar_id = ? WHERE id = ?", (avatar_id, user_id))
+        conn.commit()
+        print(f">>> User {user_id} da cap nhat avatar thanh {avatar_id}")
+        return True
+    except sqlite3.Error as e:
+        print(f"Lỗi khi cap nhat avatar: {e}")
+        return False
+    finally:
+        conn.close()
 
 # --- Chỉ chạy khi thực thi file này trực tiếp ---
 if __name__ == "__main__":

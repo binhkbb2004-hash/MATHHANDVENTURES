@@ -9,6 +9,7 @@
         .user-panel, .detail-panel { flex: 1; }
         #login-section, #admin-panel { padding: 20px; border: 1px solid #61dafb; border-radius: 8px; }
         #admin-panel { display: none; }
+        #statistics-panel { background-color: #20232a; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { border: 1px solid #444; padding: 10px; text-align: left; }
         th { background-color: #20232a; }
@@ -30,6 +31,14 @@
     </div>
 
     <div id="admin-panel">
+        
+        <div id="statistics-panel">
+            <h3>Thống kê Toàn hệ thống</h3>
+            <p>Tổng số người dùng: <b id="stat-total-users">0</b></p>
+            <p>Tổng số lượt chơi: <b id="stat-total-games">0</b></p>
+            <button id="refreshStatsBtn">Làm mới Thống kê</button>
+        </div>
+
         <div class="container">
             <div class="user-panel">
                 <h2>Danh sách người chơi</h2>
@@ -58,6 +67,7 @@
     <script>
         const socket = io('https://mathhandventures.onrender.com'); 
         
+        // Lấy các element từ HTML
         const statusEl = document.getElementById('status');
         const loginSection = document.getElementById('login-section');
         const adminPanel = document.getElementById('admin-panel');
@@ -68,9 +78,21 @@
         const currentUserEl = document.getElementById('currentUser');
         const historyDataEl = document.getElementById('history-data');
 
+        // Thêm element cho thống kê
+        const refreshStatsBtn = document.getElementById('refreshStatsBtn');
+        const statTotalUsers = document.getElementById('stat-total-users');
+        const statTotalGames = document.getElementById('stat-total-games');
+
         // --- LẮNG NGHE SỰ KIỆN TỪ SERVER ---
         socket.on('connect', () => { statusEl.textContent = 'Đã kết nối!'; statusEl.style.color = 'lime'; });
-        socket.on('admin_login_success', () => { loginSection.style.display = 'none'; adminPanel.style.display = 'block'; refreshUsersBtn.click(); });
+
+        socket.on('admin_login_success', () => {
+            loginSection.style.display = 'none';
+            adminPanel.style.display = 'block';
+            refreshUsersBtn.click(); // Tự động làm mới danh sách
+            refreshStatsBtn.click(); // Tự động làm mới thống kê
+        });
+
         socket.on('admin_login_fail', () => { alert('Sai mật khẩu!'); });
 
         socket.on('admin_user_list', (data) => {
@@ -101,34 +123,41 @@
             historyDataEl.innerHTML += '<h3>Game Đếm Số</h3>';
             if (countingHistory.length > 0) { countingHistory.forEach(h => { historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`; }); } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
         });
+        
+        // Thêm bộ lắng nghe cho thống kê
+        socket.on('admin_statistics_data', (data) => {
+            statTotalUsers.textContent = data.total_users;
+            statTotalGames.textContent = data.total_games;
+        });
 
         // --- GỬI SỰ KIỆN TỚI SERVER ---
         loginBtn.onclick = () => { socket.emit('admin_login', { password: adminPasswordInput.value }); };
         refreshUsersBtn.onclick = () => { socket.emit('admin_get_all_users'); };
+        
+        // Thêm hành động cho nút thống kê
+        refreshStatsBtn.onclick = () => {
+            socket.emit('admin_get_statistics');
+        };
 
-        // --- PHẦN CODE HOÀN CHỈNH CHO CÁC NÚT XEM/SỬA/XÓA ---
         userTableBody.addEventListener('click', (event) => {
             const target = event.target;
             const userId = target.getAttribute('data-id');
             const userName = target.getAttribute('data-name');
-            
             if (target.classList.contains('btn-view')) {
                 currentUserEl.textContent = `Lịch sử của: ${userName} (ID: ${userId})`;
                 socket.emit('admin_get_user_history', { user_id: parseInt(userId) });
             }
-            
             if (target.classList.contains('btn-edit')) {
                 const newName = prompt(`Nhập tên mới cho '${userName}':`);
                 if (newName && newName.trim() !== '') {
                     socket.emit('admin_update_user_name', { user_id: parseInt(userId), new_name: newName });
-                    setTimeout(() => refreshUsersBtn.click(), 500); // Làm mới sau 0.5s
+                    setTimeout(() => refreshUsersBtn.click(), 500); 
                 }
             }
-            
             if (target.classList.contains('btn-delete')) {
                 if (confirm(`Bạn có chắc chắn muốn xóa '${userName}' và toàn bộ lịch sử chơi?`)) {
                     socket.emit('admin_delete_user', { user_id: parseInt(userId) });
-                    setTimeout(() => refreshUsersBtn.click(), 500); // Làm mới sau 0.5s
+                    setTimeout(() => refreshUsersBtn.click(), 500);
                 }
             }
         });

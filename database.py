@@ -1,4 +1,4 @@
-# Tên file: database.py (Phiên bản Admin Panel + Avatar)
+# Tên file: database.py
 
 import sqlite3
 from datetime import datetime
@@ -12,10 +12,8 @@ def init_db():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
     
-    # Bật khóa ngoại để đảm bảo liên kết dữ liệu
     cursor.execute("PRAGMA foreign_keys = ON")
 
-    # Bảng Users: Thêm cột avatar_id
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +23,6 @@ def init_db():
     )
     """)
 
-    # Bảng GameHistory (giữ nguyên, chỉ liên kết bằng user_id)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS GameHistory (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +36,7 @@ def init_db():
     
     conn.commit()
     conn.close()
-    print(">>> Co so du lieu da duoc khoi tao voi cau truc moi (Users & GameHistory + Avatar).")
+    print(">>> Co so du lieu 'game_data.db' da duoc khoi tao hoac da ton tai.")
 
 def find_or_create_user(name):
     """
@@ -47,11 +44,9 @@ def find_or_create_user(name):
     :return: Một dictionary chứa {'user_id': id, 'avatar_id': id}
     """
     conn = sqlite3.connect(DATABASE_FILE)
-    # Thiết lập để trả về kết quả dạng dictionary
     conn.row_factory = sqlite3.Row 
     cursor = conn.cursor()
     
-    # Thử tìm user bằng tên
     cursor.execute("SELECT id, avatar_id FROM Users WHERE name = ?", (name,))
     user = cursor.fetchone()
     
@@ -59,11 +54,10 @@ def find_or_create_user(name):
         user_id = user['id']
         avatar_id = user['avatar_id']
     else:
-        # Nếu không có, tạo user mới
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute("INSERT INTO Users (name, created_at, avatar_id) VALUES (?, ?, 0)", (name, timestamp))
         user_id = cursor.lastrowid
-        avatar_id = 0 # Avatar mặc định khi tạo mới
+        avatar_id = 0 
         print(f">>> Da tao nguoi dung moi: {name} (ID: {user_id})")
         
     conn.commit()
@@ -72,7 +66,7 @@ def find_or_create_user(name):
 
 def save_game_result(user_id, score, game_mode):
     """
-    Lưu kết quả một lượt chơi dựa vào user_id.
+    Lưu kết quả một lượt chơi và chỉ giữ lại 10 lượt gần nhất.
     """
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -82,7 +76,6 @@ def save_game_result(user_id, score, game_mode):
     cursor.execute("INSERT INTO GameHistory (user_id, game_mode, score, timestamp) VALUES (?, ?, ?, ?)", 
                    (user_id, game_mode, score, timestamp))
     
-    # Xóa các kết quả cũ, chỉ giữ lại 10 lượt mới nhất
     cursor.execute("""
         DELETE FROM GameHistory 
         WHERE id NOT IN (
@@ -108,7 +101,6 @@ def get_player_history(user_id):
     cursor.execute("SELECT game_mode, score, timestamp FROM GameHistory WHERE user_id = ? ORDER BY game_mode, timestamp DESC", (user_id,))
     history_rows = cursor.fetchall()
     conn.close()
-    # Chuyển đổi định dạng để dễ dùng hơn ở Front-end
     return [{'mode': row['game_mode'], 'score': row['score'], 'time': row['timestamp']} for row in history_rows]
 
 # --- CÁC HÀM DÀNH CHO ADMIN ---
@@ -135,7 +127,7 @@ def update_user_name(user_id, new_name):
         cursor.execute("UPDATE Users SET name = ? WHERE id = ?", (new_name, user_id))
         conn.commit()
         return True
-    except sqlite3.IntegrityError: # Lỗi nếu tên mới đã tồn tại
+    except sqlite3.IntegrityError: 
         return False
     finally:
         conn.close()
@@ -146,12 +138,10 @@ def delete_user_and_history(user_id):
     """
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    cursor.execute("PRAGMA foreign_keys = ON") # Bật khóa ngoại để xóa liên đới
+    cursor.execute("PRAGMA foreign_keys = ON")
     cursor.execute("DELETE FROM Users WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
-
-# --- HÀM MỚI DÀNH CHO AVATAR ---
 
 def update_user_avatar(user_id, avatar_id):
     """
@@ -169,6 +159,28 @@ def update_user_avatar(user_id, avatar_id):
         return False
     finally:
         conn.close()
+
+# --- HÀM MỚI DÀNH CHO THỐNG KÊ ---
+
+def get_total_users_count():
+    """
+    Đếm tổng số người dùng đã đăng ký.
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    count = cursor.execute("SELECT COUNT(id) FROM Users").fetchone()[0]
+    conn.close()
+    return count
+
+def get_total_games_played_count():
+    """
+    Đếm tổng số lượt chơi đã diễn ra trên toàn hệ thống.
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    count = cursor.execute("SELECT COUNT(id) FROM GameHistory").fetchone()[0]
+    conn.close()
+    return count
 
 # --- Chỉ chạy khi thực thi file này trực tiếp ---
 if __name__ == "__main__":

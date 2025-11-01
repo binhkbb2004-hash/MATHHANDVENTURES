@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Client for Game Server</title>
+    <style>
+        body { font-family: sans-serif; background-color: #282c34; color: white; padding: 20px; display: flex; gap: 20px;}
+        .main-controls, .history { flex: 1; }
+        #logs, #history-data { border: 1px solid #61dafb; padding: 10px; margin-top: 10px; height: 400px; overflow-y: scroll; background-color: #20232a; }
+        button { font-size: 16px; padding: 10px; margin-right: 10px; cursor: pointer; }
+        .log-message, .history-entry { border-bottom: 1px solid #444; padding: 5px 0; }
+        .history-entry { display: flex; justify-content: space-between; }
+        input { padding: 8px; font-size: 16px; width: 300px; margin-bottom: 10px; }
+        #avatar-controls { margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="main-controls">
+        <h1>Trình kiểm thử Back-end</h1>
+        <p>Trạng thái kết nối: <b id="status" style="color: red;">Đang kết nối...</b></p>
+        <p>Thông tin người chơi: <b id="player-name-display">Chưa đăng nhập</b> | Avatar ID: <b id="player-avatar-display">N/A</b></p>
+
+        <input type="text" id="playerName" placeholder="Nhập tên của bạn để bắt đầu">
+        <br>
+        <button id="startMath">Bắt đầu Game Tính Toán</button>
+        <button id="startCounting">Bắt đầu Game Đếm Số</button>
+
+        <div id="avatar-controls" style="display: none;">
+            <p>Đổi avatar (Giả lập chọn avatar 1-5):</p>
+            <button class="avatar-btn" data-avatar="1">Avatar 1</button>
+            <button class="avatar-btn" data-avatar="2">Avatar 2</button>
+            <button class="avatar-btn" data-avatar="3">Avatar 3</button>
+        </div>
+
+        <h2>Log từ Server:</h2>
+        <div id="logs"></div>
+    </div>
+
+    <div class="history">
+        <h1>Lịch sử chơi</h1>
+        <div id="history-data">Chưa có dữ liệu. Hãy chơi một ván để xem lịch sử.</div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <script>
+        const socket = io('https://mathhandventures.onrender.com'); 
+        const statusEl = document.getElementById('status');
+        const logsEl = document.getElementById('logs');
+        const historyDataEl = document.getElementById('history-data');
+        const playerNameInput = document.getElementById('playerName');
+        const playerNameDisplay = document.getElementById('player-name-display');
+        const playerAvatarDisplay = document.getElementById('player-avatar-display');
+        const avatarControls = document.getElementById('avatar-controls');
+
+        function addLog(message) {
+            const time = new Date().toLocaleTimeString();
+            logsEl.innerHTML += `<div class="log-message">[${time}] ${message}</div>`;
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+
+        function updateHistory(history) {
+            historyDataEl.innerHTML = '';
+            addLog('SERVER > HISTORY_UPDATE: Đã nhận dữ liệu lịch sử.');
+            const mathHistory = history.filter(h => h.mode === 'Math');
+            const countingHistory = history.filter(h => h.mode === 'Counting');
+            historyDataEl.innerHTML += '<h3>Game Tính Toán (10 lần gần nhất)</h3>';
+            if (mathHistory.length > 0) { mathHistory.forEach(e => { historyDataEl.innerHTML += `<div class="history-entry"><span>Điểm: ${e.score}</span></div>`; }); } else { historyDataEl.innerHTML += 'Chưa có lượt chơi nào.'; }
+            historyDataEl.innerHTML += '<h3>Game Đếm Số (10 lần gần nhất)</h3>';
+            if (countingHistory.length > 0) { countingHistory.forEach(e => { historyDataEl.innerHTML += `<div class="history-entry"><span>Điểm: ${e.score}</span></div>`; }); } else { historyDataEl.innerHTML += 'Chưa có lượt chơi nào.'; }
+        }
+
+        // --- LẮNG NGHE SỰ KIỆN TỪ SERVER ---
+        socket.on('connect', () => { statusEl.textContent = 'Đã kết nối!'; statusEl.style.color = 'lime'; addLog('INFO: Kết nối tới server thành công.'); });
+        socket.on('new_question', (data) => addLog(`SERVER > NEW_QUESTION: Câu hỏi ${data.question_count}: "${data.question_text}"`));
+        socket.on('show_result', (data) => addLog(`SERVER > SHOW_RESULT: Kết quả: ${data.is_correct ? 'ĐÚNG' : 'SAI'}. Điểm mới: ${data.new_score}`));
+        
+        socket.on('player_info_updated', (data) => {
+            addLog(`SERVER > PLAYER_INFO: Tên: ${data.name}, Avatar ID: ${data.avatar_id}`);
+            playerNameDisplay.textContent = data.name;
+            playerAvatarDisplay.textContent = data.avatar_id;
+            avatarControls.style.display = 'block';
+        });
+
+        socket.on('avatar_update_success', (data) => {
+            addLog(`SERVER > AVATAR_SUCCESS: Đã đổi avatar thành ID: ${data.avatar_id}`);
+            playerAvatarDisplay.textContent = data.avatar_id;
+        });
+
+        socket.on('avatar_update_fail', (data) => { addLog(`SERVER > AVATAR_FAIL: ${data.message}`); });
+
+        socket.on('game_over', (data) => {
+            addLog(`SERVER > GAME_OVER: Trò chơi kết thúc! Điểm cuối cùng: ${data.final_score}`);
+            updateHistory(data.history);
+            addLog('-----------------------------------');
+        });
+
+        // --- GỬI SỰ KIỆN TỚI SERVER ---
+        function startGame(mode) {
+            const playerName = playerNameInput.value;
+            if (!playerName) { alert('Vui lòng nhập tên của bạn!'); return; }
+            addLog(`CLIENT > START_GAME: Yêu cầu bắt đầu game ${mode} cho người chơi ${playerName}.`);
+            logsEl.innerHTML = '';
+            socket.emit('start_game', { name: playerName, game_mode: mode });
+        }
+        document.getElementById('startMath').onclick = () => startGame('Math');
+        document.getElementById('startCounting').onclick = () => startGame('Counting');
+
+        avatarControls.addEventListener('click', (event) => {
+            if (event.target.classList.contains('avatar-btn')) {
+                const avatarId = event.target.getAttribute('data-avatar');
+                addLog(`CLIENT > UPDATE_AVATAR: Yêu cầu đổi thành avatar ${avatarId}`);
+                socket.emit('player_update_avatar', { 'avatar_id': parseInt(avatarId) });
+            }
+        });
+    </script>
+</body>
+</html>

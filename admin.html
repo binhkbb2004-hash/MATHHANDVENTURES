@@ -8,7 +8,7 @@
         .container { display: flex; gap: 30px; }
         .user-panel, .detail-panel { flex: 1; }
         #login-section, #admin-panel { padding: 20px; border: 1px solid #61dafb; border-radius: 8px; }
-        #admin-panel { display: none; } /* Ẩn đi lúc đầu */
+        #admin-panel { display: none; }
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { border: 1px solid #444; padding: 10px; text-align: left; }
         th { background-color: #20232a; }
@@ -20,7 +20,6 @@
     </style>
 </head>
 <body>
-
     <h1>Trang Quản Trị</h1>
     <p>Trạng thái kết nối: <b id="status" style="color: red;">Đang kết nối...</b></p>
 
@@ -40,11 +39,10 @@
                         <tr>
                             <th>ID</th>
                             <th>Tên người chơi</th>
-                            <th>Hành động</th>
+                            <th>Avatar ID</th> <th>Hành động</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        </tbody>
+                    <tbody></tbody>
                 </table>
             </div>
             <div class="detail-panel">
@@ -57,7 +55,7 @@
 
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-        const socket = io('https://mathhandventures.onrender.com'); // Kết nối tới server Render
+        const socket = io('https://mathhandventures.onrender.com'); 
         
         const statusEl = document.getElementById('status');
         const loginSection = document.getElementById('login-section');
@@ -71,13 +69,7 @@
 
         // --- LẮNG NGHE SỰ KIỆN TỪ SERVER ---
         socket.on('connect', () => { statusEl.textContent = 'Đã kết nối!'; statusEl.style.color = 'lime'; });
-
-        socket.on('admin_login_success', () => {
-            loginSection.style.display = 'none';
-            adminPanel.style.display = 'block';
-            refreshUsersBtn.click(); // Tự động làm mới danh sách sau khi login
-        });
-
+        socket.on('admin_login_success', () => { loginSection.style.display = 'none'; adminPanel.style.display = 'block'; refreshUsersBtn.click(); });
         socket.on('admin_login_fail', () => { alert('Sai mật khẩu!'); });
 
         socket.on('admin_user_list', (data) => {
@@ -87,7 +79,7 @@
                     <tr>
                         <td>${user.id}</td>
                         <td>${user.name}</td>
-                        <td>
+                        <td>${user.avatar_id}</td> <td>
                             <button class="btn-view" data-id="${user.id}" data-name="${user.name}">Xem</button>
                             <button class="btn-edit" data-id="${user.id}" data-name="${user.name}">Sửa</button>
                             <button class="btn-delete" data-id="${user.id}" data-name="${user.name}">Xóa</button>
@@ -102,44 +94,12 @@
             historyDataEl.innerHTML = '';
             const mathHistory = data.history.filter(h => h.mode === 'Math');
             const countingHistory = data.history.filter(h => h.mode === 'Counting');
-
             historyDataEl.innerHTML += '<h3>Game Tính Toán</h3>';
             if (mathHistory.length > 0) { mathHistory.forEach(h => { historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`; }); } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
-            
             historyDataEl.innerHTML += '<h3>Game Đếm Số</h3>';
             if (countingHistory.length > 0) { countingHistory.forEach(h => { historyDataEl.innerHTML += `<div>Điểm: ${h.score} (Lúc: ${h.time})</div>`; }); } else { historyDataEl.innerHTML += 'Không có dữ liệu.'; }
         });
 
         // --- GỬI SỰ KIỆN TỚI SERVER ---
         loginBtn.onclick = () => { socket.emit('admin_login', { password: adminPasswordInput.value }); };
-        
-        refreshUsersBtn.onclick = () => { socket.emit('admin_get_all_users'); };
-
-        userTableBody.addEventListener('click', (event) => {
-            const target = event.target;
-            const userId = target.getAttribute('data-id');
-            const userName = target.getAttribute('data-name');
-
-            if (target.classList.contains('btn-view')) {
-                currentUserEl.textContent = `Lịch sử của: ${userName} (ID: ${userId})`;
-                socket.emit('admin_get_user_history', { user_id: userId });
-            }
-            
-            if (target.classList.contains('btn-edit')) {
-                const newName = prompt(`Nhập tên mới cho '${userName}':`);
-                if (newName && newName.trim() !== '') {
-                    socket.emit('admin_update_user_name', { user_id: userId, new_name: newName });
-                    setTimeout(() => refreshUsersBtn.click(), 500);
-                }
-            }
-            
-            if (target.classList.contains('btn-delete')) {
-                if (confirm(`Bạn có chắc chắn muốn xóa '${userName}' và toàn bộ lịch sử chơi?`)) {
-                    socket.emit('admin_delete_user', { user_id: userId });
-                    setTimeout(() => refreshUsersBtn.click(), 500);
-                }
-            }
-        });
-    </script>
-</body>
-</html>
+        refreshUsersBtn.onclick = () => { socket.emit

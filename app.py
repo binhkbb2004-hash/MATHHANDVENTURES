@@ -1,17 +1,14 @@
-# Tên file: app.py (Phiên bản Client-Side AI)
+# Tên file: app.py (Đã sửa lỗi Thoát game)
 
 import os
+import cv2
+import numpy as np
+import base64
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 
-# --- BƯỚC 1: LOẠI BỎ CÁC THƯ VIỆN AI ---
-# import cv2
-# import numpy as np
-# import base64
-# from demngontay import HandDetector 
-# >>> Chúng ta không cần những thứ này ở Back-end nữa
-
-# --- IMPORT LOGIC GAME VÀ DATABASE ---
+# Import các module
+from demngontay import HandDetector
 from game_logic import (
     generate_math_problem, 
     generate_counting_problem, 
@@ -31,14 +28,116 @@ app.config['SECRET_KEY'] = 'admin123'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 init_db()
-# --- KHÔNG CẦN KHỞI TẠO HandDetector NỮA ---
-# detector = HandDetector(max_hands=2, detection_con=0.8) 
-game_states = {}
+detector = HandDetector(max_hands=2, detection_con=0.8)
+game_states = {} # Dùng để lưu trạng thái của client
 
-# --- KHÔNG CẦN HÀM base64_to_image NỮA ---
-# def base64_to_image(base64_string): ...
+def base64_to_image(base64_string):
+    if "," in base64_string:
+        base64_string = base64_string.split(',')[1]
+    img_bytes = base64.b64decode(base64_string)
+    np_arr = np.frombuffer(img_bytes, np.uint8)
+    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    return image
 
-# --- CÁC SỰ KIỆN WEBSOCKET ---
+# --- HÀM MỚI: TÁCH RIÊNG VÒNG LẶP GAME ---
+def run_game_loop(client_id, game_mode, user_id):
+    """Hàm này chạy trong một tác vụ nền (background task)"""
+    state = game_states[client_id]
+    final_score = 0
+    
+    try:
+        if game_mode == 'Math' or game_mode == 'Counting':
+            for q_num in range(10):
+                # Kiểm tra cờ thoát ở ĐẦU mỗi câu hỏi
+                if state.get('exit_requested', False):
+                    final_score = state['score']
+                    break
+                    
+                state['question_count'] = q_num + 1
+                if game_mode == 'Math':
+                    question, answer = generate_math_problem()
+                    q_type = 'Math'
+                else:
+                    question, answer = generate_counting_problem()
+                    q_type = 'Counting'
+                state['correct_answer'] = answer
+                socketio.emit('new_question', {'question_type': q_type, 'question_text': question, 'question_count': state['question_count']}, to=client_id)
+                
+                for i in range(10, -1, -1):
+                    socketio.emit('timer_update', {'time': i}, to=client_id)
+                    socketio.sleep(1) # Sleep (nhưng không block server)
+                    # Kiểm tra cờ thoát TRONG lúc đếm ngược
+                    if state.get('exit_requested', False):
+                        break
+                
+                if state.get('exit_requested', False):
+                    final_score = state['score']
+                    break 
+                    
+                user_answer = state['last_finger_count']
+                is_correct = check_answer(user_answer, state['correct_answer'])
+                if is_correct: state['score'] += 10
+                
+                socketio.emit('show_result', {'is_correct': is_correct, 'correct_answer': state['correct_answer'], 'new_score': state['score']}, to=client_id)
+                socketio.sleep(3)
+            
+            if not state.get('exit_requested', False):
+                final_score = state['score']
+        
+        elif game_mode == 'Obstacle':
+            state['current_milestone'] = 1
+            state['highest_milestone'] = 1
+            
+            while state['current_milestone'] <= 20:
+                if state.get('exit_requested', False):
+                    final_score = state['highest_milestone']
+                    break
+                    
+                q_type, question, answer = generate_random_challenge()
+                state['correct_answer'] = answer
+                socketio.emit('new_question', {'question_type': q_type, 'question_text': question, 'milestone': state['current_milestone']}, to=client_id)
+                if state['current_milestone'] in [10, 15, 20]:
+                    socketio.emit('reward_unlocked', {'milestone': state['current_milestone']}, to=client_id)
+                    socketio.sleep(1)
+                for i in range(10, -1, -1):
+                    socketio.emit('timer_update', {'time': i}, to=client_id)
+                    socketio.sleep(1)
+                    if state.get('exit_requested', False): break
+                if state.get('exit_requested', False):
+                    final_score = state['highest_milestone']
+                    break
+                user_answer = state['last_finger_count']
+                is_correct = check_answer(user_answer, state['correct_answer'])
+                if is_correct:
+                    state['current_milestone'] += 1
+                    if state['current_milestone'] > state['highest_milestone']:
+                        state['highest_milestone'] = state['current_milestone']
+                else:
+                    state['current_milestone'] = max(1, state['current_milestone'] - 2)
+                socketio.emit('show_result', {'is_correct': is_correct, 'correct_answer': state['correct_answer'], 'new_milestone': state['current_milestone']}, to=client_id)
+                socketio.sleep(3)
+            
+            if not state.get('exit_requested', False):
+                final_score = state['highest_milestone']
+                if state['current_milestone'] > 20: final_score = 20
+        
+        # --- LƯU KẾT QUẢ VÀ KẾT THÚC GAME ---
+        save_game_result(user_id, final_score, game_mode)
+        history = get_player_history(user_id)
+        socketio.emit('game_over', {'final_score': final_score, 'history': history}, to=client_id)
+        
+        state['state'] = 'MainMenu'
+        state['exit_requested'] = False
+        
+    except Exception as e:
+        print(f"Loi trong game loop cho {client_id}: {e}")
+        # Đảm bảo client được giải phóng
+        if client_id in game_states:
+            state['state'] = 'MainMenu'
+        socketio.emit('game_over', {'final_score': final_score, 'history': []}, to=client_id)
+
+
+# --- CÁC SỰ KIỆN WEBSOCKET CỦA NGƯOI CHƠI ---
 @socketio.on('connect')
 def handle_connect():
     print(f">>> Client da ket noi: {request.sid}")
@@ -52,12 +151,12 @@ def handle_disconnect():
 
 @socketio.on('player_login')
 def handle_player_login(data):
-    # (Hàm này giữ nguyên)
     client_id = request.sid
     player_name = data.get('name', '').strip()
     if not player_name:
         emit('login_fail', {'message': 'Tên không hợp lệ.'})
         return
+
     user_info = find_or_create_user(player_name)
     game_states[client_id] = {
         'user_id': user_info['user_id'],
@@ -65,119 +164,60 @@ def handle_player_login(data):
         'player_name': player_name,
         'state': 'MainMenu'
     }
-    print(f">>> User {player_name} (ID: {user_info['user_id']}) da dang nhap.")
     emit('player_info_updated', {'name': player_name, 'avatar_id': user_info['avatar_id']})
 
 @socketio.on('player_logout')
 def handle_player_logout():
-    # (Hàm này giữ nguyên)
     client_id = request.sid
     if client_id in game_states:
-        print(f">>> User {game_states[client_id].get('player_name')} da dang xuat.")
         game_states[client_id] = {'state': 'Connected'}
     emit('logout_success')
 
-# --- BƯỚC 2: THAY THẾ process_frame BẰNG SỰ KIỆN MỚI ---
-# --- XÓA TOÀN BỘ HÀM handle_process_frame CŨ ---
-# @socketio.on('process_frame')
-# def handle_process_frame(data):
-#     ... (XÓA HẾT) ...
-
-# --- THÊM HÀM MỚI NÀY VÀO ---
-@socketio.on('client_finger_count')
-def handle_client_finger_count(data):
-    """
-    Nhận SỐ ĐẾM (count) trực tiếp từ client và cập nhật state.
-    """
+@socketio.on('process_frame')
+def handle_process_frame(data):
     client_id = request.sid
     if client_id not in game_states: return
-    
-    count = data.get('count', 0)
-    
-    # Chỉ cập nhật số ngón tay nếu client đang trong trạng thái chơi
+    frame = base64_to_image(data['image'])
+    frame = detector.find_hands(frame, draw=False)
+    total_finger_count = 0
+    if detector.results.multi_hand_landmarks:
+        for i in range(len(detector.results.multi_hand_landmarks)):
+            handedness = detector.results.multi_handedness[i].classification[0].label
+            landmarks = detector.get_landmarks(frame, hand_no=i)
+            if landmarks:
+                total_finger_count += detector.count_fingers(landmarks, handedness)
     if game_states[client_id].get('state') == 'Playing':
-        game_states[client_id]['last_finger_count'] = count
-        
-    # Gửi lại cho client để xác nhận (dùng cho debug)
-    # emit('finger_count_update', {'count': count}) # Dòng này giờ không cần thiết nữa
+        game_states[client_id]['last_finger_count'] = total_finger_count
+    emit('finger_count_update', {'count': total_finger_count})
 
+# --- HÀM START_GAME ĐÃ THAY ĐỔI ---
 @socketio.on('start_game')
 def handle_start_game(data):
-    # (Hàm này giữ nguyên toàn bộ logic, không thay đổi)
+    """
+    Hàm này giờ chỉ khởi tạo state và BẮT ĐẦU tác vụ nền, không chạy vòng lặp.
+    """
     client_id = request.sid
     game_mode = data.get('game_mode')
+    
     if client_id not in game_states or 'user_id' not in game_states[client_id]:
         emit('game_over', {'final_score': 0, 'history': []})
         return
+
     state = game_states[client_id]
     user_id = state['user_id']
+    
+    # Cập nhật trạng thái
     state.update({
         'game_mode': game_mode, 'score': 0, 'question_count': 0, 
         'correct_answer': None, 'last_finger_count': 0, 'state': 'Playing',
         'exit_requested': False
     })
-    final_score = 0 
-    if game_mode == 'Math' or game_mode == 'Counting':
-        for q_num in range(10):
-            state['question_count'] = q_num + 1
-            if game_mode == 'Math':
-                question, answer = generate_math_problem()
-                q_type = 'Math'
-            else:
-                question, answer = generate_counting_problem()
-                q_type = 'Counting'
-            state['correct_answer'] = answer
-            emit('new_question', {'question_type': q_type, 'question_text': question, 'question_count': state['question_count']})
-            for i in range(10, -1, -1):
-                emit('timer_update', {'time': i})
-                socketio.sleep(1)
-                if state.get('exit_requested', False): break
-            if state.get('exit_requested', False):
-                final_score = state['score']
-                break 
-            user_answer = state['last_finger_count'] # Vẫn lấy số đếm cuối cùng
-            is_correct = check_answer(user_answer, state['correct_answer'])
-            if is_correct: state['score'] += 10
-            emit('show_result', {'is_correct': is_correct, 'correct_answer': state['correct_answer'], 'new_score': state['score']})
-            socketio.sleep(3)
-        if not state.get('exit_requested', False):
-            final_score = state['score']
-    elif game_mode == 'Obstacle':
-        state['current_milestone'] = 1
-        state['highest_milestone'] = 1
-        while state['current_milestone'] <= 20:
-            q_type, question, answer = generate_random_challenge()
-            state['correct_answer'] = answer
-            emit('new_question', {'question_type': q_type, 'question_text': question, 'milestone': state['current_milestone']})
-            if state['current_milestone'] in [10, 15, 20]:
-                emit('reward_unlocked', {'milestone': state['current_milestone']})
-                socketio.sleep(1)
-            for i in range(10, -1, -1):
-                emit('timer_update', {'time': i})
-                socketio.sleep(1)
-                if state.get('exit_requested', False): break
-            if state.get('exit_requested', False): break
-            user_answer = state['last_finger_count']
-            is_correct = check_answer(user_answer, state['correct_answer'])
-            if is_correct:
-                state['current_milestone'] += 1
-                if state['current_milestone'] > state['highest_milestone']:
-                    state['highest_milestone'] = state['current_milestone']
-            else:
-                state['current_milestone'] = max(1, state['current_milestone'] - 2)
-            emit('show_result', {'is_correct': is_correct, 'correct_answer': state['correct_answer'], 'new_milestone': state['current_milestone']})
-            socketio.sleep(3)
-        final_score = state['highest_milestone']
-        if state['current_milestone'] > 20: final_score = 20
-    save_game_result(user_id, final_score, game_mode)
-    history = get_player_history(user_id)
-    emit('game_over', {'final_score': final_score, 'history': history})
-    state['state'] = 'MainMenu'
-    state['exit_requested'] = False
+    
+    # Bắt đầu vòng lặp game trong một luồng riêng
+    socketio.start_background_task(run_game_loop, client_id, game_mode, user_id)
 
 @socketio.on('player_update_avatar')
 def handle_player_update_avatar(data):
-    # (Hàm này giữ nguyên)
     client_id = request.sid
     if client_id not in game_states or 'user_id' not in game_states[client_id]:
         emit('avatar_update_fail', {'message': 'Bạn cần đăng nhập trước.'})
@@ -195,10 +235,12 @@ def handle_player_update_avatar(data):
         emit('avatar_update_fail', {'message': 'Dữ liệu không hợp lệ.'})
         
 @socketio.on('player_exit_game')
-def handle_player_exit_game(data):
-    # (Hàm này giữ nguyên)
+def handle_player_exit_game():
+    """
+    Hàm này giờ sẽ hoạt động ngay lập tức vì server không bị block.
+    """
     client_id = request.sid
-    if client_id in game_states:
+    if client_id in game_states and game_states[client_id]['state'] == 'Playing':
         print(f">>> Client {client_id} yeu cau thoat game.")
         game_states[client_id]['exit_requested'] = True
 
@@ -208,8 +250,10 @@ def handle_admin_login(data):
     password = data.get('password')
     if password == app.config['SECRET_KEY']:
         emit('admin_login_success')
+        print(">>> Admin da dang nhap thanh cong.")
     else:
         emit('admin_login_fail')
+        print(">>> Co nguoi dang nhap Admin that bai.")
 
 @socketio.on('admin_get_all_users')
 def handle_admin_get_all_users():
@@ -242,6 +286,9 @@ def handle_admin_delete_user(data):
 def handle_admin_get_statistics():
     total_users = get_total_users_count()
     game_stats = get_game_statistics_by_mode()
+    
+    print(f">>> Admin yeu cau thong ke: {total_users} users, stats: {game_stats}")
+    
     emit('admin_statistics_data', {
         'total_users': total_users,
         'game_stats': game_stats

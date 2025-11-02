@@ -1,4 +1,4 @@
-# Tên file: app.py (Phiên bản Client-Side AI - Không cv2)
+# Tên file: app.py
 
 import os
 # --- KHÔNG CÓ import cv2, numpy, base64 ---
@@ -33,12 +33,15 @@ game_states = {} # Dùng để lưu trạng thái của client
 # --- HÀM MỚI: TÁCH RIÊNG VÒNG LẶP GAME ---
 def run_game_loop(client_id, game_mode, user_id):
     """Hàm này chạy trong một tác vụ nền (background task)"""
-    state = game_states[client_id]
-    final_score = 0
-    
+    # Lấy state của client từ global game_states
+    # Dùng try...except để đảm bảo server không crash nếu client ngắt kết nối
     try:
+        state = game_states[client_id]
+        final_score = 0
+        
         if game_mode == 'Math' or game_mode == 'Counting':
             for q_num in range(10):
+                # Kiểm tra cờ thoát ở ĐẦU mỗi câu hỏi
                 if state.get('exit_requested', False):
                     final_score = state['score']
                     break
@@ -55,7 +58,8 @@ def run_game_loop(client_id, game_mode, user_id):
                 
                 for i in range(10, -1, -1):
                     socketio.emit('timer_update', {'time': i}, to=client_id)
-                    socketio.sleep(1) 
+                    socketio.sleep(1) # Sleep (nhưng không block server)
+                    # Kiểm tra cờ thoát TRONG lúc đếm ngược
                     if state.get('exit_requested', False):
                         break
                 
@@ -110,6 +114,7 @@ def run_game_loop(client_id, game_mode, user_id):
                 final_score = state['highest_milestone']
                 if state['current_milestone'] > 20: final_score = 20
         
+        # --- LƯU KẾT QUẢ VÀ KẾT THÚC GAME ---
         save_game_result(user_id, final_score, game_mode)
         history = get_player_history(user_id)
         socketio.emit('game_over', {'final_score': final_score, 'history': history}, to=client_id)
@@ -119,9 +124,10 @@ def run_game_loop(client_id, game_mode, user_id):
         
     except Exception as e:
         print(f"Loi trong game loop cho {client_id}: {e}")
+        # Đảm bảo client được giải phóng nếu có lỗi
         if client_id in game_states:
-            state['state'] = 'MainMenu'
-        socketio.emit('game_over', {'final_score': final_score, 'history': []}, to=client_id)
+            game_states[client_id]['state'] = 'MainMenu'
+        socketio.emit('game_over', {'final_score': 0, 'history': []}, to=client_id)
 
 
 # --- CÁC SỰ KIỆN WEBSOCKET CỦA NGƯOI CHƠI ---
@@ -171,7 +177,9 @@ def handle_client_finger_count(data):
 
 @socketio.on('start_game')
 def handle_start_game(data):
-    """Bắt đầu tác vụ nền cho game loop."""
+    """
+    Hàm này giờ chỉ khởi tạo state và BẮT ĐẦU tác vụ nền.
+    """
     client_id = request.sid
     game_mode = data.get('game_mode')
     
@@ -182,12 +190,14 @@ def handle_start_game(data):
     state = game_states[client_id]
     user_id = state['user_id']
     
+    # Cập nhật trạng thái
     state.update({
         'game_mode': game_mode, 'score': 0, 'question_count': 0, 
         'correct_answer': None, 'last_finger_count': 0, 'state': 'Playing',
         'exit_requested': False
     })
     
+    # Bắt đầu vòng lặp game trong một luồng riêng
     socketio.start_background_task(run_game_loop, client_id, game_mode, user_id)
 
 @socketio.on('player_update_avatar')
@@ -210,9 +220,11 @@ def handle_player_update_avatar(data):
         
 @socketio.on('player_exit_game')
 def handle_player_exit_game():
-    """Hàm này giờ sẽ hoạt động ngay lập tức vì server không bị block."""
+    """
+    Hàm này giờ sẽ hoạt động ngay lập tức vì server không bị block.
+    """
     client_id = request.sid
-    if client_id in game_states and game_states[client_id]['state'] == 'Playing':
+    if client_id in game_states and game_states[client_id].get('state') == 'Playing':
         print(f">>> Client {client_id} yeu cau thoat game.")
         game_states[client_id]['exit_requested'] = True
 

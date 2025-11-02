@@ -1,4 +1,4 @@
-# Tên file: game_logic.py (Phiên bản hỗ trợ Game 3)
+# Tên file: game_logic.py
 
 import random
 
@@ -24,7 +24,6 @@ def generate_counting_problem():
     answer = number_of_objects
     return question, answer
 
-# --- HÀM MỚI CHO GAME 3 ---
 def generate_missing_number_problem():
     """Tạo bài toán "Tìm số còn thiếu"."""
     operator = random.choice(['+', '-'])
@@ -42,10 +41,9 @@ def generate_missing_number_problem():
         question = f"{num1} - ? = {result}"
     return question, answer
 
-# --- HÀM MỚI: CHỌN NGẪU NHIÊN 1 TRONG 3 LOẠI CÂU HỎI ---
 def generate_random_challenge():
     """
-    Chọn ngẫu nhiên một trong ba loại câu đố.
+    Chọn ngẫu nhiên một trong ba loại câu đố cho Game 3.
     :return: (loại câu đố, câu hỏi, đáp án)
     """
     game_type = random.choice(['Math', 'Counting', 'MissingNumber'])
@@ -64,7 +62,7 @@ def check_answer(user_answer, correct_answer):
     """Kiểm tra đáp án."""
     return user_answer == correct_answer
 
-# --- Phần chạy thử (Cập nhật để test hàm mới) ---
+# --- Phần chạy thử ---
 if __name__ == "__main__":
     print("--- Chay thu Module Logic Tro Choi ---")
     
